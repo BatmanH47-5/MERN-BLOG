@@ -13,9 +13,13 @@ require('dotenv').config(); // Load environment variables
 
 const app = express();
 
-// Constants
+// Ensure JWT secret is set in environment variables
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is required.');
+}
+
 const salt = bcrypt.genSaltSync(10);
-const secret = process.env.JWT_SECRET || 'your_default_secret'; // Use environment variable
+const secret = process.env.JWT_SECRET;
 
 // Middleware
 app.use(cors({
@@ -27,11 +31,11 @@ app.use(cookieParser());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // File Upload Setup
-const uploadMiddleware = multer({ 
+const uploadMiddleware = multer({
   dest: 'uploads/',
   limits: { fileSize: 5 * 1024 * 1024 }, // Limit file size to 5MB
   fileFilter: (req, file, cb) => {
-    const filetypes = /jpeg|jpg|png|gif/; // Allow only image files
+    const filetypes = /jpeg|jpg|png|gif/;
     const mimetype = filetypes.test(file.mimetype);
     const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
     if (mimetype && extname) {
@@ -42,7 +46,7 @@ const uploadMiddleware = multer({
 });
 
 // MongoDB connection
-const mongoURI = process.env.MONGO_URI || 'mongodb://localhost:27017/myapp'; // Use environment variable
+const mongoURI = process.env.MONGO_URI || 'mongodb://localhost:27017/myapp';
 mongoose.connect(mongoURI)
   .then(() => {
     console.log('Successfully connected to MongoDB Atlas');
@@ -103,7 +107,7 @@ app.get('/profile', (req, res) => {
   if (!token) return res.status(401).json({ error: 'No token provided' });
 
   jwt.verify(token, secret, {}, (err, info) => {
-    if (err) return res.status(403).json({ error: 'Token invalid' });
+    if (err) return res.status(403).json({ error: 'Token invalid or expired' });
     res.json(info);
   });
 });
@@ -118,11 +122,16 @@ app.post('/posts', uploadMiddleware.single('file'), async (req, res) => {
   const { path: tempPath, originalname } = req.file;
   const ext = originalname.split('.').pop();
   const newPath = `${tempPath}.${ext}`;
-  fs.renameSync(tempPath, newPath);
+  
+  try {
+    fs.renameSync(tempPath, newPath);
+  } catch (error) {
+    return res.status(500).json({ error: 'Error processing the file upload' });
+  }
 
   const { token } = req.cookies;
   jwt.verify(token, secret, {}, async (err, info) => {
-    if (err) return res.status(403).json({ error: 'Token invalid' });
+    if (err) return res.status(403).json({ error: 'Token invalid or expired' });
 
     const { title, summary, content } = req.body;
     try {
@@ -143,17 +152,21 @@ app.post('/posts', uploadMiddleware.single('file'), async (req, res) => {
 // Edit Post route
 app.put('/posts', uploadMiddleware.single('file'), async (req, res) => {
   let newPath = null;
-  
+
   if (req.file) {
     const { path: tempPath, originalname } = req.file;
     const ext = originalname.split('.').pop();
     newPath = `${tempPath}.${ext}`;
-    fs.renameSync(tempPath, newPath);
+    try {
+      fs.renameSync(tempPath, newPath);
+    } catch (error) {
+      return res.status(500).json({ error: 'Error processing the file upload' });
+    }
   }
 
   const { token } = req.cookies;
   jwt.verify(token, secret, {}, async (err, info) => {
-    if (err) return res.status(403).json({ error: 'Token invalid' });
+    if (err) return res.status(403).json({ error: 'Token invalid or expired' });
 
     const { id, title, summary, content } = req.body;
     try {
@@ -223,3 +236,4 @@ app.get('/posts/:id', async (req, res) => {
 app.listen(4000, () => {
   console.log('Server running on http://localhost:4000');
 });
+
