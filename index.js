@@ -9,25 +9,30 @@ const cookieParser = require('cookie-parser');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
-require('dotenv').config(); // Load environment variables
+require('dotenv').config();
 
 const app = express();
 
-// Ensure JWT secret is set in environment variables
-if (!process.env.JWT_SECRET) {
-  throw new Error('JWT_SECRET environment variable is required.');
+// Ensure JWT secret and FRONTEND_URL are set in environment variables
+if (!process.env.JWT_SECRET || !process.env.FRONTEND_URL) {
+  throw new Error('Environment variables JWT_SECRET and FRONTEND_URL are required.');
 }
 
 const salt = bcrypt.genSaltSync(10);
 const secret = process.env.JWT_SECRET;
 
-// Middleware
+// Log incoming requests
+app.use((req, res, next) => {
+  console.log(`Incoming request from origin: ${req.get('Origin')}`);
+  next();
+});
+
+// CORS configuration
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-})); 
+  origin: process.env.FRONTEND_URL || 'http://localhost:5173', // Allow your frontend URL
+  credentials: true, // Allow credentials (cookies, authorization headers)
+}));
+
 app.use(express.json());
 app.use(cookieParser());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -124,7 +129,7 @@ app.post('/posts', uploadMiddleware.single('file'), async (req, res) => {
   const { path: tempPath, originalname } = req.file;
   const ext = originalname.split('.').pop();
   const newPath = `${tempPath}.${ext}`;
-  
+
   try {
     fs.renameSync(tempPath, newPath);
   } catch (error) {
@@ -224,17 +229,18 @@ app.get('/posts', async (req, res) => {
 
 // Get Single Post route
 app.get('/posts/:id', async (req, res) => {
-  const { id } = req.params;
   try {
-    const postDoc = await Post.findById(id).populate('author', ['username']);
-    if (!postDoc) return res.status(404).json({ error: 'Post not found' });
-    res.json(postDoc);
+    const { id } = req.params;
+    const post = await Post.findById(id).populate('author', ['username']);
+    if (!post) return res.status(404).json({ error: 'Post not found' });
+    res.json(post);
   } catch (e) {
     res.status(500).json({ error: 'Error fetching post', details: e.message });
   }
 });
 
-// Start Server
-app.listen(4000, () => {
-  console.log('Server running on http://localhost:4000');
+// Start server
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
 });
